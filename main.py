@@ -1,3 +1,5 @@
+import sqlite3
+
 # constants
 ADD_TASK = 1
 DISPLAY_TASK_LIST = 2
@@ -33,13 +35,16 @@ def get_num(prompt):
         return ERROR_RETURN
 
 
-def add_task(task_list):
+def add_task(task_list, cursor, conn):
     num_of_tasks = get_num("Enter the number of tasks you want to add: ")
     if num_of_tasks <= 0:
         return ERROR_RETURN
     for i in range(0, num_of_tasks):
         task = input(f"Enter task #{i+1}: ")
         task_list.append(task)
+        cursor.execute("INSERT INTO task_list (task_number, task_desc) VALUES (?, ?)", (i + 1, task))
+        conn.commit()
+    return len(task_list)
 
 
 def display_task_list(list):
@@ -47,7 +52,7 @@ def display_task_list(list):
         print(f"{i+1}. {list[i]}")
 
 
-def mark_completed(task_list, completed_list):
+def mark_completed(task_list, completed_list, cursor, conn):
     print("Task List.")
     display_task_list(task_list)
 
@@ -57,13 +62,18 @@ def mark_completed(task_list, completed_list):
     completed_task_i = get_num("Enter a task # to mark completed: ")
 
     if completed_task_i > 0 and completed_task_i <= len(task_list):
-        completed_list.append(task_list[completed_task_i - 1])
-        task_list.remove(task_list[completed_task_i - 1])
+        completed_task = task_list[completed_task_i - 1]
+        completed_list.append(completed_task)
+        cursor.execute("INSERT INTO completed_task_list (task_number, task_desc) VALUES (?, ?)",
+                       (len(completed_list), completed_task))
+        cursor.execute("DELETE FROM task_list WHERE task_desc = ?", (completed_task,))
+        conn.commit()
+        task_list.remove(completed_task)
     else:
         return ERROR_RETURN
 
 
-def delete_task(task_list):
+def delete_task(task_list, cursor, conn):
     print("Task List.")
     display_task_list(task_list)
 
@@ -74,7 +84,10 @@ def delete_task(task_list):
     print("\n")
 
     if delete_task_i > 0 and delete_task_i <= len(task_list):
-        task_list.remove(task_list[delete_task_i - 1])
+        deleted_task = task_list[delete_task_i - 1]
+        cursor.execute("DELETE FROM task_list WHERE task_desc = ?", (deleted_task,))
+        conn.commit()
+        task_list.remove(deleted_task)
     else:
         return ERROR_RETURN
 
@@ -85,17 +98,43 @@ def main():
     completed_task_list = []
     taking_input = True
 
+    conn = sqlite3.connect("tasklist.db")
+    cursor = conn.cursor()
+
+    cursor.execute(""" CREATE TABLE IF NOT EXISTS task_list (
+                   task_number INT,
+                   task_desc TEXT
+                    )""")
+    
+    cursor.execute(""" CREATE TABLE IF NOT EXISTS completed_task_list (
+                   task_number INT,
+                   task_desc TEXT
+                    )""")
+
+    cursor.execute("SELECT task_desc FROM task_list")
+    task_list = [row[0] for row in cursor.fetchall()]
+    
+    cursor.execute("SELECT task_desc FROM completed_task_list")
+    completed_task_list = [row[0] for row in cursor.fetchall()]
+
+    conn.commit()
+
+
     while(taking_input):
         display_menu()
+
         menu_choice = get_num("Select an option: ")
         print("\n")
+
         if menu_choice == ERROR_RETURN or menu_choice <= 0 or menu_choice > MENU_SIZE :
             print("Error. Enter a valid number.")
 
         if menu_choice == ADD_TASK:
-            add_task_return = add_task(task_list)
-            if add_task_return == ERROR_RETURN:
+            num_tasks = add_task(task_list, cursor, conn)
+            if num_tasks == ERROR_RETURN:
                 print("Error. Enter a valid number.")
+            else:
+                print(f"Added {num_tasks} task(s) to task list.")
         
         if menu_choice == DISPLAY_TASK_LIST:
             print("Task List:")
@@ -106,21 +145,24 @@ def main():
             display_task_list(completed_task_list)
         
         if menu_choice == MARK_COMPLETED:
-            mark_completed_return = mark_completed(task_list, completed_task_list)
+            mark_completed_return = mark_completed(task_list, completed_task_list, cursor, conn)
             if mark_completed_return == ERROR_RETURN:
                 print("Error. Enter a valid number.")
         
         if menu_choice == DELETE_TASK:
-            delete_task_return = delete_task(task_list)
+            delete_task_return = delete_task(task_list, cursor, conn)
             if delete_task_return == ERROR_RETURN:
                 print("Error. Enter a valid number.")
 
         if menu_choice == CLEAR_COMPLETED_LIST:
             completed_task_list.clear()
+            cursor.execute("DELETE FROM completed_task_list")
+            conn.commit()
             print("Clearing completed list.")
         
         if menu_choice == EXIT:
             print("Exiting...")
+            conn.close()
             taking_input = False
             break
         print("\n")
